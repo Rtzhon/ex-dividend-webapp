@@ -1,10 +1,11 @@
 import streamlit as st
 import pandas as pd
 import requests
+from bs4 import BeautifulSoup
 from urllib.parse import quote
 from datetime import datetime
 
-# 模擬瀏覽器 headers，避免 Goodinfo 擋爬
+# 模擬瀏覽器 headers，避免被 Goodinfo 擋爬
 HEADERS = {
     'User-Agent': (
         'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
@@ -13,15 +14,11 @@ HEADERS = {
     'Referer': 'https://goodinfo.tw/tw/index.asp'
 }
 
-# Goodinfo 除權息日程網址
 DIVIDEND_SCHEDULE_URL = "https://goodinfo.tw/tw/StockDividendSchedule.asp"
 DIVIDEND_POLICY_URL = "https://goodinfo.tw/tw/StockDividendPolicy.asp"
 
 @st.cache_data(show_spinner=False)
 def get_ex_dividend_by_date(target_date: str) -> pd.DataFrame:
-    """
-    擷取指定日期的除權息標的，依成交量排序
-    """
     url = f"{DIVIDEND_SCHEDULE_URL}?DATE={quote(target_date)}"
     try:
         response = requests.get(url, headers=HEADERS)
@@ -50,13 +47,17 @@ def get_ex_dividend_by_date(target_date: str) -> pd.DataFrame:
 
 @st.cache_data(show_spinner=False)
 def get_stock_dividend_info(stock_id: str) -> pd.DataFrame:
-    """
-    擷取指定股票代號的歷年股利政策資料
-    """
     url = f"{DIVIDEND_POLICY_URL}?STOCK_ID={stock_id}"
     try:
         response = requests.get(url, headers=HEADERS)
         response.encoding = 'utf-8'
+        
+        # 驗證是否真的有內容（避免被導向首頁）
+        soup = BeautifulSoup(response.text, 'html.parser')
+        if '股利所屬年' not in response.text:
+            st.warning("⚠️ 找不到股利資料，可能是股票代號錯誤或被擋爬")
+            return pd.DataFrame()
+
         dfs = pd.read_html(response.text)
     except Exception as e:
         st.error(f"❌ 無法讀取股票資訊：{e}")
@@ -66,7 +67,7 @@ def get_stock_dividend_info(stock_id: str) -> pd.DataFrame:
         if "股利所屬年" in df.columns:
             return df
 
-    st.warning("⚠️ 查無股利資料，請確認股票代號正確")
+    st.warning("⚠️ 查無股利資料，可能股票代號錯誤")
     return pd.DataFrame()
 
 # Streamlit 主介面
